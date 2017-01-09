@@ -152,13 +152,13 @@ class MinecraftServerWrapper:
                     if join_match:
                         message = "{} has joined Minecraft".format(
                             join_match.group(1))
-                        self.irc_send(message)
+                        self.irc_send(message, True)
 
                     leave_match = server_leave_re.search(output_line)
                     if leave_match:
                         message = "{} has left Minecraft".format(
                             leave_match.group(1))
-                        self.irc_send(message)
+                        self.irc_send(message, True)
             else:
                 # Killed?
                 # FIXME: This doesn't work half the time
@@ -181,8 +181,9 @@ class MinecraftServerWrapper:
         if self._subprocess:
             self._subprocess.kill()
 
-    def irc_send(self, message):
-        self._bottom.send('PRIVMSG',
+    def irc_send(self, message, notice=False):
+        cmd = 'PRIVMSG' if not notice else 'NOTICE'
+        self._bottom.send(cmd,
                           target=self._config["irc_channel"],
                           message=message)
 
@@ -470,7 +471,8 @@ class MinecraftServerWrapper:
                 nick, nick, user, host)
 
             if self._config["use_tellraw"]:
-                formatted_message = "/tellraw @a [\"* {}\"]".format(message)
+                json_msg = json.dumps(["* " + message])
+                formatted_message = "/tellraw @a " + json_msg
             else:
                 formatted_message = "/say " + message
 
@@ -492,14 +494,17 @@ class MinecraftServerWrapper:
             message = "{} has left IRC".format(nick, nick, user)
             if part_message:
                 message += " (" + part_message + ")"
+            print(message)
 
             if self._config["use_tellraw"]:
-                formatted_message = "/tellraw @a [\"* {}\"]".format(message)
+                json_msg = json.dumps(["* " + message])
+                formatted_message = "/tellraw @a " + json_msg
             else:
                 formatted_message = "/say " + message
 
             formatted_message = (formatted_message + "\n").encode('utf-8')
             self._subprocess.stdin.write(formatted_message)
+            print(formatted_message)
 
         print("IRC ready!")
 
