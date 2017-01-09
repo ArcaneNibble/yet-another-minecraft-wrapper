@@ -280,7 +280,7 @@ class MinecraftServerWrapper:
 
         # Register message handler
         @self._bottom.on('PRIVMSG')
-        def message(nick, target, message, **kwargs):
+        async def privmsg(nick, target, message, **kwargs):
             # User must be authorized
             if nick not in self._config["users"]:
                 # Not a command, send to MC
@@ -331,7 +331,9 @@ class MinecraftServerWrapper:
                     self.irc_send(message)
                 elif real_command == "all-shutdown":
                     print("Shutting down!")
-                    self.subprocess_kill()
+                    if self._subprocess:
+                        self._subprocess.stdin.write(b"stop\n")
+                        await self._subprocess.wait()
                     self._bottom.send('QUIT', message=":( :( :(")
                     self._loop.stop()
                     return
@@ -360,6 +362,7 @@ def main():
     serv = MinecraftServerWrapper(config, loop)
     loop.create_task(serv.start_wrapper())
     loop.run_forever()
+    loop.close()
 
 if __name__ == '__main__':
     main()
