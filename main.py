@@ -28,6 +28,25 @@ IRC_TO_MC_HEX_LUT = [
     "§7",   # Gray
 ]
 
+IRC_TO_MC_NAME_LUT = [
+    "white",
+    "black",
+    "dark_blue",
+    "dark_green",
+    "red",
+    "dark_red",
+    "dark_purple",
+    "gold",
+    "yellow",
+    "green",
+    "dark_aqua",
+    "aqua",
+    "blue",
+    "light_purple",
+    "dark_gray",
+    "gray"
+]
+
 
 class MinecraftServerWrapper:
     _config = None
@@ -103,8 +122,85 @@ class MinecraftServerWrapper:
             return
 
         if self._config["use_tellraw"]:
-            # FIXME
-            formatted_message = message
+            fragments = []
+            fragment = ''
+            is_bold = False
+            is_italics = False
+            is_underline = False
+            color = None
+
+            def _append_now():
+                if not fragment:
+                    return
+
+                fragment_struct = {
+                    "text": fragment,
+                    "bold": is_bold,
+                    "underlined": is_underline,
+                    "italic": is_italics
+                }
+
+                if color:
+                    fragment_struct["color"] = color
+
+                fragments.append(fragment_struct)
+
+            i = 0
+            while i < len(message):
+                c = message[i]
+                if c in string.printable:
+                    fragment += c
+
+                elif c == '\x02':
+                    _append_now()
+                    fragment = ''
+                    is_bold = not is_bold
+                elif c == '\x1D':
+                    _append_now()
+                    fragment = ''
+                    is_italics = not is_italics
+                elif c == '\x1F':
+                    _append_now()
+                    fragment = ''
+                    is_underline = not is_underline
+
+                elif c == '\x03':
+                    _append_now()
+                    fragment = ''
+
+                    # Color
+                    tmp_color = ''
+                    i += 1
+                    while message[i] in string.digits:
+                        tmp_color += message[i]
+                        i += 1
+                    # Skip bg if given
+                    if message[i] == ',':
+                        i += 1
+                        while message[i] in string.digits:
+                            i += 1
+                    i -= 1
+                    tmp_color = int(tmp_color)
+                    if tmp_color < 16:
+                        color = IRC_TO_MC_NAME_LUT[tmp_color]
+
+                elif c == '\x0F':
+                    # Reset all
+                    _append_now()
+                    fragment = ''
+                    is_bold = is_italics = is_underline = False
+                    color = None
+
+                i  += 1
+
+            # Lingering bit
+            _append_now()
+
+            # Prefix
+            fragments.insert(0, "[IRC] <{}> ".format(irc_user))
+
+            json_str = json.dumps(fragments)
+            formatted_message = "/tellraw @a " + json_str
         else:
             # Because of laziness, we don't translate formatting but do handle
             # colors
@@ -130,8 +226,9 @@ class MinecraftServerWrapper:
                     color = int(color)
                     if color < 16:
                         colored_msg += IRC_TO_MC_HEX_LUT[color]
-                else:
-                    pass
+                elif c == '\x0F':
+                    # Reset all
+                    colored_msg += '§r'
 
                 i += 1
             formatted_message = "/say <{}> {}".format(irc_user, colored_msg)
