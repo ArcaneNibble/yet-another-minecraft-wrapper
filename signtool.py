@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 
+import binascii
 import ed25519
 import sys
 
 
 def usage():
     print("Usage: {} vk secret.bin".format(sys.argv[0]))
-    print("       {} sign secret.bin !|!! 'args'".format(sys.argv[0]))
-    print("       {} verify vk sig !|!! 'args'".format(sys.argv[0]))
+    print("       {} sign secret.bin nonce !|!! 'args'".format(sys.argv[0]))
+    print("       {} verify vk sig nonce !|!! 'args'".format(sys.argv[0]))
 
 
 def main():
@@ -37,9 +38,14 @@ def main():
 
         sk = ed25519.SigningKey(secret)
 
-        is_special = sys.argv[3] == "!!"
+        is_special = sys.argv[4] == "!!"
         bytes_to_sign = b'\x00' if not is_special else b'\x01'
-        bytes_to_sign += sys.argv[4].encode('utf-8')
+
+        # Nonce
+        nonce = binascii.unhexlify(sys.argv[3])
+        bytes_to_sign += nonce
+
+        bytes_to_sign += sys.argv[5].encode('utf-8')
         sig = sk.sign(bytes_to_sign, encoding='base64').decode('ascii')
         print(sig)
 
@@ -47,9 +53,14 @@ def main():
         # Verify a command
         vk = ed25519.VerifyingKey(sys.argv[2], encoding='base64')
 
-        is_special = sys.argv[4] == "!!"
+        is_special = sys.argv[5] == "!!"
         bytes_to_sign = b'\x00' if not is_special else b'\x01'
-        bytes_to_sign += sys.argv[5].encode('utf-8')
+
+        # Nonce
+        nonce = binascii.unhexlify(sys.argv[4])
+        bytes_to_sign += nonce
+
+        bytes_to_sign += sys.argv[6].encode('utf-8')
 
         try:
             vk.verify(sys.argv[3], bytes_to_sign, encoding='base64')

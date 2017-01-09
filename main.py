@@ -2,6 +2,7 @@
 
 import asyncio
 import asyncio.subprocess
+import binascii
 import bottom
 import ed25519
 import errno
@@ -60,12 +61,20 @@ class MinecraftServerWrapper:
     _subprocess = None
     _backup_task = None
     _backup_event = None
+    _random = None
+    _nonce = None
 
     def __init__(self, config, loop):
         self._config = config
         self._loop = loop
 
         self._backup_event = asyncio.Event(loop=loop)
+
+        self._random = open("/dev/urandom", "rb")
+        self.new_nonce()
+
+    def new_nonce(self):
+        self._nonce = self._random.read(16)
 
     async def backup_task(self):
         while True:
@@ -368,6 +377,10 @@ class MinecraftServerWrapper:
             # Actual command
             real_command = fragments[2]
 
+            if real_command == "nonce":
+                self.irc_send(binascii.hexlify(self._nonce).decode('ascii'))
+                return
+
             # Sigcheck command
             if self._config["enable_sig_verify"]:
                 # Signature must be this length
@@ -379,6 +392,7 @@ class MinecraftServerWrapper:
                 vk = ed25519.VerifyingKey(vk_enc, encoding='base64')
 
                 bytes_to_sign = b'\x00' if not is_special_cmd else b'\x01'
+                bytes_to_sign += self._nonce
                 bytes_to_sign += real_command.encode('utf-8')
 
                 try:
@@ -386,6 +400,8 @@ class MinecraftServerWrapper:
                 except ed25519.BadSignatureError:
                     print("Signature invalid!")
                     return
+
+            self.new_nonce()
 
             if not is_special_cmd:
                 # Command to forward to server
@@ -418,7 +434,7 @@ class MinecraftServerWrapper:
                     if self._subprocess:
                         self._subprocess.stdin.write(b"stop\n")
                         await self._subprocess.wait()
-                    self._bottom.send('QUIT', message=":( :( :(")
+                    self._bottom.send('QUIT', message=":( :( :( ")
                     self._loop.stop()
                     return
                 elif real_command[:7] == "taillog":
