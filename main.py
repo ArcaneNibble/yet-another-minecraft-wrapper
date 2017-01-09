@@ -337,6 +337,19 @@ class MinecraftServerWrapper:
                     self._bottom.send('QUIT', message=":( :( :(")
                     self._loop.stop()
                     return
+                elif real_command[:7] == "taillog":
+                    lines = 10
+                    try:
+                        lines = int(real_command[8:])
+                    except ValueError:
+                        pass
+
+                    with open("logs/latest.log", "r") as f:
+                        # FIXME: Ugly
+                        lines = f.readlines()[-lines:]
+
+                        for line in lines:
+                            self.irc_send(line)
                 else:
                     # Bad command
                     message = "Unrecognized command: " + real_command
