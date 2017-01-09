@@ -191,7 +191,7 @@ class MinecraftServerWrapper:
                     is_bold = is_italics = is_underline = False
                     color = None
 
-                i  += 1
+                i += 1
 
             # Lingering bit
             _append_now()
