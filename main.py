@@ -6,6 +6,7 @@ import bottom
 import json
 import sys
 
+
 class MinecraftServerWrapper:
     _config = None
     _loop = None
@@ -147,6 +148,7 @@ class MinecraftServerWrapper:
 
         # Launch subprocess
         self._loop.create_task(self.subprocess_create())
+
 
 def main():
     if len(sys.argv) < 2:
