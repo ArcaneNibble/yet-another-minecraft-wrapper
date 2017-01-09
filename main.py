@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import asyncio
+import asyncio.subprocess
 import bottom
 import json
 import sys
@@ -9,10 +10,30 @@ class MinecraftServerWrapper:
     _config = None
     _loop = None
     _bottom = None
+    _subprocess = None
 
     def __init__(self, config, loop):
         self._config = config
         self._loop = loop
+
+    # Create the subprocess
+    async def subprocess_create(self):
+        self._subprocess = await asyncio.create_subprocess_exec(
+            *self._config["cmdline"],
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE)
+        print(self._subprocess)
+
+        while True:
+            # Read from the process
+            output_line = await self._subprocess.stdout.readline()
+
+            if output_line:
+                print(output_line)
+            else:
+                # Killed?
+                print(self._subprocess.returncode)
+                return
 
     # Actual work starts here
     async def start_wrapper(self):
@@ -59,9 +80,30 @@ class MinecraftServerWrapper:
         # Register message handler
         @self._bottom.on('PRIVMSG')
         def message(nick, target, message, **kwargs):
-            print(nick, target, message)
+            # User must be authorized
+            if nick not in self._config["users"]:
+                return
+
+            fragments = message.strip().split(maxsplit=2)
+            if len(fragments) != 3:
+                return
+
+            # Command must start with "!<nick>" or "!!<nick>"
+            if ((fragments[0] != ("!" + self._config["irc_nick"])) and
+                (fragments[0] != ("!!" + self._config["irc_nick"]))):
+                return
+            is_special_cmd = fragments[0][:2] == "!!"
+
+            # TODO: sig
+
+            # Actual command
+            real_command = fragments[2]
+            print(is_special_cmd, real_command)
 
         print("IRC ready!")
+
+        # Launch subprocess
+        self._loop.create_task(self.subprocess_create())
 
 def main():
     if len(sys.argv) < 2:
@@ -71,7 +113,6 @@ def main():
     # Load config
     with open(sys.argv[1], 'r') as f:
         config = json.load(f)
-    print(config)
 
     # Start event loop
     loop = asyncio.get_event_loop()
