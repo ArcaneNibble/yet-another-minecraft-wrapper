@@ -358,8 +358,7 @@ class MinecraftServerWrapper:
                 self.mc_send(nick, message)
                 return
 
-            message = message.strip()
-            fragments = message.split(maxsplit=2)
+            fragments = message.strip().split(maxsplit=2)
             if len(fragments) != 3:
                 # Not a command, send to MC
                 self.mc_send(nick, message)
@@ -455,6 +454,52 @@ class MinecraftServerWrapper:
                     # Bad command
                     message = "Unrecognized command: " + real_command
                     self.irc_send(message)
+
+        @self._bottom.on('JOIN')
+        def irc_join(nick, user, host, **kwargs):
+            if not self._config["enable_irc_bridge"]:
+                return
+            if not self._subprocess:
+                return
+
+            if nick == self._config["irc_nick"]:
+                # Ourselves
+                return
+
+            message = "{} has joined IRC ({}!{}@{})".format(
+                nick, nick, user, host)
+
+            if self._config["use_tellraw"]:
+                formatted_message = "/tellraw @a [\"* {}\"]".format(message)
+            else:
+                formatted_message = "/say " + message
+
+            formatted_message = (formatted_message + "\n").encode('utf-8')
+            self._subprocess.stdin.write(formatted_message)
+
+        @self._bottom.on('PART')
+        def irc_part(nick, user, host, message, **kwargs):
+            if not self._config["enable_irc_bridge"]:
+                return
+            if not self._subprocess:
+                return
+
+            if nick == self._config["irc_nick"]:
+                # Ourselves
+                return
+
+            part_message = message
+            message = "{} has left IRC".format(nick, nick, user)
+            if part_message:
+                message += " (" + part_message + ")"
+
+            if self._config["use_tellraw"]:
+                formatted_message = "/tellraw @a [\"* {}\"]".format(message)
+            else:
+                formatted_message = "/say " + message
+
+            formatted_message = (formatted_message + "\n").encode('utf-8')
+            self._subprocess.stdin.write(formatted_message)
 
         print("IRC ready!")
 
