@@ -5,7 +5,28 @@ import asyncio.subprocess
 import bottom
 import json
 import re
+import string
 import sys
+
+
+IRC_TO_MC_HEX_LUT = [
+    "§f",   # White
+    "§0",   # Black
+    "§1",   # Dark blue
+    "§2",   # Dark green
+    "§c",   # Red
+    "§4",   # Dark red
+    "§5",   # Dark purple
+    "§6",   # Gold
+    "§e",   # Yellow
+    "§a",   # Green
+    "§3",   # Dark aqua
+    "§b",   # Aqua
+    "§9",   # Blue
+    "§d",   # Light purple
+    "§8",   # Dark gray
+    "§7",   # Gray
+]
 
 
 class MinecraftServerWrapper:
@@ -85,7 +106,34 @@ class MinecraftServerWrapper:
             # FIXME
             formatted_message = message
         else:
-            colored_msg = message
+            # Because of laziness, we don't translate formatting but do handle
+            # colors
+            colored_msg = ''
+            i = 0
+            while i < len(message):
+                c = message[i]
+                if c in string.printable:
+                    colored_msg += c
+                elif c == '\x03':
+                    # Color
+                    color = ''
+                    i += 1
+                    while message[i] in string.digits:
+                        color += message[i]
+                        i += 1
+                    # Skip bg if given
+                    if message[i] == ',':
+                        i += 1
+                        while message[i] in string.digits:
+                            i += 1
+                    i -= 1
+                    color = int(color)
+                    if color < 16:
+                        colored_msg += IRC_TO_MC_HEX_LUT[color]
+                else:
+                    pass
+
+                i += 1
             formatted_message = "/say <{}> {}".format(irc_user, colored_msg)
 
         formatted_message = (formatted_message + "\n").encode('utf-8')
