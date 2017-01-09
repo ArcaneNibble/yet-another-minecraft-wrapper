@@ -22,27 +22,30 @@ class MinecraftServerWrapper:
             *self._config["cmdline"],
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE)
-        print(self._subprocess)
 
         while True:
             # Read from the process
             output_line = await self._subprocess.stdout.readline()
 
             if output_line:
-                print(output_line)
+                output_line = output_line.decode('utf-8')
+                self.irc_send(output_line)
             else:
                 # Killed?
                 message = "\x02\x0304Server exited with code {}".format(
                     self._subprocess.returncode)
-                self._bottom.send('PRIVMSG',
-                                  target=self._config["irc_channel"],
-                                  message=message)
+                self.irc_send(message)
                 self._subprocess = None
                 return
 
     def subprocess_kill(self):
         if self._subprocess:
             self._subprocess.kill()
+
+    def irc_send(self, message):
+        self._bottom.send('PRIVMSG',
+                          target=self._config["irc_channel"],
+                          message=message)
 
     # Actual work starts here
     async def start_wrapper(self):
@@ -127,9 +130,8 @@ class MinecraftServerWrapper:
                     else:
                         message = "Server running, PID {}".format(
                             self._subprocess.pid)
-                    self._bottom.send('PRIVMSG',
-                                      target=self._config["irc_channel"],
-                                      message=message)
+
+                    self.irc_send(message)
                 elif real_command == "all-shutdown":
                     print("Shutting down!")
                     self.subprocess_kill()
@@ -139,9 +141,7 @@ class MinecraftServerWrapper:
                 else:
                     # Bad command
                     message = "Unrecognized command: " + real_command
-                    self._bottom.send('PRIVMSG',
-                                      target=self._config["irc_channel"],
-                                      message=message)
+                    self.irc_send(message)
 
         print("IRC ready!")
 
