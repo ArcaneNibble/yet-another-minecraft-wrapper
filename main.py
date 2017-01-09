@@ -3,6 +3,7 @@
 import asyncio
 import asyncio.subprocess
 import bottom
+import ed25519
 import errno
 import json
 import os
@@ -364,10 +365,27 @@ class MinecraftServerWrapper:
 
             is_special_cmd = fragments[0][:2] == "!!"
 
-            # TODO: sig
-
             # Actual command
             real_command = fragments[2]
+
+            # Sigcheck command
+            if self._config["enable_sig_verify"]:
+                # Signature must be this length
+                if len(fragments[1]) != 86:
+                    print("Signature invalid!")
+                    return
+
+                vk_enc = self._config["users"][nick]
+                vk = ed25519.VerifyingKey(vk_enc, encoding='base64')
+
+                bytes_to_sign = b'\x00' if not is_special_cmd else b'\x01'
+                bytes_to_sign += real_command.encode('utf-8')
+
+                try:
+                    vk.verify(fragments[1], bytes_to_sign, encoding='base64')
+                except ed25519.BadSignatureError:
+                    print("Signature invalid!")
+                    return
 
             if not is_special_cmd:
                 # Command to forward to server
