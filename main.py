@@ -3,10 +3,14 @@
 import asyncio
 import asyncio.subprocess
 import bottom
+import errno
 import json
+import os
 import re
+import shutil
 import string
 import sys
+import time
 
 
 IRC_TO_MC_HEX_LUT = [
@@ -53,10 +57,47 @@ class MinecraftServerWrapper:
     _loop = None
     _bottom = None
     _subprocess = None
+    _backup_task = None
+    _backup_event = None
 
     def __init__(self, config, loop):
         self._config = config
         self._loop = loop
+
+        self._backup_event = asyncio.Event(loop=loop)
+
+    async def backup_task(self):
+        while True:
+            await asyncio.sleep(self._config["backup_interval"])
+            print("Backup...")
+
+            self._subprocess.stdin.write(b'save-all\n')
+
+            await self._backup_event.wait()
+            print("Save done...")
+
+            existing_backups = os.listdir("backups")
+            # Filter out bogus (wrong length or not numbers)
+            existing_backups = [
+                x for x in existing_backups if len(x) == 14 and x.isdigit()]
+
+            # We can sort them by converting them to numbers because we
+            # purposely ordered the fields correctly
+            existing_backups = sorted(existing_backups, key=int)
+            # Keep only the specified number of backups
+            # Delete one extra because we're just about to make one
+            backups_to_delete = existing_backups[
+                :-self._config["num_backups"] + 1]
+
+            # Do this backup
+            now_time = time.strftime("%Y%m%d%H%M%S", time.gmtime())
+            shutil.copytree("world", "backups/" + now_time)
+            print("Backup OK!")
+
+            # Now delete the old backups
+            for old_backup in backups_to_delete:
+                print("Deleting old backup " + old_backup)
+                shutil.rmtree("backups/" + old_backup)
 
     # Create the subprocess
     async def subprocess_create(self):
@@ -72,12 +113,23 @@ class MinecraftServerWrapper:
         server_leave_re = re.compile(
             "INFO\]: ([A-Za-z0-9_]+) lost connection")
 
+        saving_re_1 = re.compile("Save complete.")
+        saving_re_2 = re.compile("Saved the world")
+
+        if self._config["backup_interval"] > 0:
+            self._backup_task = self._loop.create_task(self.backup_task())
+
         while True:
             # Read from the process
             output_line = await self._subprocess.stdout.readline()
 
             if output_line:
                 output_line = output_line.decode('utf-8')
+
+                if (saving_re_1.search(output_line) or
+                        saving_re_2.search(output_line)):
+                    self._backup_event.set()
+                    self._backup_event.clear()
 
                 if self._config["enable_irc_bridge"]:
                     chat_match = server_chat_re.search(output_line)
@@ -103,10 +155,19 @@ class MinecraftServerWrapper:
                 message = "\x02\x0304Server exited with code {}".format(
                     self._subprocess.returncode)
                 self.irc_send(message)
+
+                if self._backup_task:
+                    self._backup_task.cancel()
+                    self._backup_task = None
+
                 self._subprocess = None
                 return
 
     def subprocess_kill(self):
+        if self._backup_task:
+            self._backup_task.cancel()
+            self._backup_task = None
+
         if self._subprocess:
             self._subprocess.kill()
 
@@ -331,6 +392,11 @@ class MinecraftServerWrapper:
                     self.irc_send(message)
                 elif real_command == "all-shutdown":
                     print("Shutting down!")
+
+                    if self._backup_task:
+                        self._backup_task.cancel()
+                        self._backup_task = None
+
                     if self._subprocess:
                         self._subprocess.stdin.write(b"stop\n")
                         await self._subprocess.wait()
@@ -369,6 +435,13 @@ def main():
     # Load config
     with open(sys.argv[1], 'r') as f:
         config = json.load(f)
+
+    # Ensure backup directory exists
+    try:
+        os.mkdir("backups")
+    except OSError as exception:
+        if exception.errno != errno.EEXIST:
+            raise
 
     # Start event loop
     loop = asyncio.get_event_loop()
