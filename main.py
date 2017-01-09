@@ -378,7 +378,8 @@ class MinecraftServerWrapper:
             real_command = fragments[2]
 
             if real_command == "nonce":
-                self.irc_send(binascii.hexlify(self._nonce).decode('ascii'))
+                nonce_text = binascii.hexlify(self._nonce).decode('ascii')
+                self._bottom.send('PRIVMSG', message=nonce_text, target=nick)
                 return
 
             # Sigcheck command
