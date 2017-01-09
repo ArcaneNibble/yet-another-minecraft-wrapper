@@ -32,8 +32,17 @@ class MinecraftServerWrapper:
                 print(output_line)
             else:
                 # Killed?
-                print(self._subprocess.returncode)
+                message = "\x02\x0304Server exited with code {}".format(
+                    self._subprocess.returncode)
+                self._bottom.send('PRIVMSG',
+                                  target=self._config["irc_channel"],
+                                  message=message)
+                self._subprocess = None
                 return
+
+    def subprocess_kill(self):
+        if self._subprocess:
+            self._subprocess.kill()
 
     # Actual work starts here
     async def start_wrapper(self):
@@ -90,7 +99,7 @@ class MinecraftServerWrapper:
 
             # Command must start with "!<nick>" or "!!<nick>"
             if ((fragments[0] != ("!" + self._config["irc_nick"])) and
-                (fragments[0] != ("!!" + self._config["irc_nick"]))):
+                    (fragments[0] != ("!!" + self._config["irc_nick"]))):
                 return
             is_special_cmd = fragments[0][:2] == "!!"
 
@@ -98,7 +107,41 @@ class MinecraftServerWrapper:
 
             # Actual command
             real_command = fragments[2]
-            print(is_special_cmd, real_command)
+
+            if not is_special_cmd:
+                # Command to forward to server
+                if self._subprocess:
+                    real_command = (real_command + "\n").encode('utf-8')
+                    self._subprocess.stdin.write(real_command)
+            else:
+                # Command for us
+                if real_command == "kill":
+                    self.subprocess_kill()
+                elif real_command == "launch":
+                    if self._subprocess:
+                        return
+                    self._loop.create_task(self.subprocess_create())
+                elif real_command == "status":
+                    if not self._subprocess:
+                        message = "Server not running"
+                    else:
+                        message = "Server running, PID {}".format(
+                            self._subprocess.pid)
+                    self._bottom.send('PRIVMSG',
+                                      target=self._config["irc_channel"],
+                                      message=message)
+                elif real_command == "all-shutdown":
+                    print("Shutting down!")
+                    self.subprocess_kill()
+                    self._bottom.send('QUIT', message=":( :( :(")
+                    self._loop.stop()
+                    return
+                else:
+                    # Bad command
+                    message = "Unrecognized command: " + real_command
+                    self._bottom.send('PRIVMSG',
+                                      target=self._config["irc_channel"],
+                                      message=message)
 
         print("IRC ready!")
 
