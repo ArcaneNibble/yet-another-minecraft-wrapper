@@ -4,6 +4,7 @@ import asyncio
 import asyncio.subprocess
 import bottom
 import json
+import re
 import sys
 
 
@@ -24,15 +25,41 @@ class MinecraftServerWrapper:
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE)
 
+        server_chat_re = re.compile(
+            "INFO\]: <([A-Za-z0-9_]+)> (.*)$")
+        server_join_re = re.compile(
+            "INFO\]: ([A-Za-z0-9_]+) ?\[.*\] logged in")
+        server_leave_re = re.compile(
+            "INFO\]: ([A-Za-z0-9_]+) lost connection")
+
         while True:
             # Read from the process
             output_line = await self._subprocess.stdout.readline()
 
             if output_line:
                 output_line = output_line.decode('utf-8')
-                self.irc_send(output_line)
+
+                if self._config["enable_irc_bridge"]:
+                    chat_match = server_chat_re.search(output_line)
+                    if chat_match:
+                        message = "<{}> {}".format(
+                            chat_match.group(1), chat_match.group(2))
+                        self.irc_send(message)
+
+                    join_match = server_join_re.search(output_line)
+                    if join_match:
+                        message = "{} has joined Minecraft".format(
+                            join_match.group(1))
+                        self.irc_send(message)
+
+                    leave_match = server_leave_re.search(output_line)
+                    if leave_match:
+                        message = "{} has left Minecraft".format(
+                            leave_match.group(1))
+                        self.irc_send(message)
             else:
                 # Killed?
+                # FIXME: This doesn't work half the time
                 message = "\x02\x0304Server exited with code {}".format(
                     self._subprocess.returncode)
                 self.irc_send(message)
@@ -47,6 +74,22 @@ class MinecraftServerWrapper:
         self._bottom.send('PRIVMSG',
                           target=self._config["irc_channel"],
                           message=message)
+
+    def mc_send(self, irc_user, message):
+        if not self._config["enable_irc_bridge"]:
+            return
+        if not self._subprocess:
+            return
+
+        if self._config["use_tellraw"]:
+            # FIXME
+            formatted_message = message
+        else:
+            colored_msg = message
+            formatted_message = "/say <{}> {}".format(irc_user, colored_msg)
+
+        formatted_message = (formatted_message + "\n").encode('utf-8')
+        self._subprocess.stdin.write(formatted_message)
 
     # Actual work starts here
     async def start_wrapper(self):
@@ -64,7 +107,7 @@ class MinecraftServerWrapper:
 
         @self._bottom.on('PING')
         def keepalive(message, **kwargs):
-            bot.send('PONG', message=message)
+            self._bottom.send('PONG', message=message)
 
         # Connect and then send username
         await self._bottom.connect()
@@ -95,16 +138,24 @@ class MinecraftServerWrapper:
         def message(nick, target, message, **kwargs):
             # User must be authorized
             if nick not in self._config["users"]:
+                # Not a command, send to MC
+                self.mc_send(nick, message)
                 return
 
-            fragments = message.strip().split(maxsplit=2)
+            message = message.strip()
+            fragments = message.split(maxsplit=2)
             if len(fragments) != 3:
+                # Not a command, send to MC
+                self.mc_send(nick, message)
                 return
 
             # Command must start with "!<nick>" or "!!<nick>"
             if ((fragments[0] != ("!" + self._config["irc_nick"])) and
                     (fragments[0] != ("!!" + self._config["irc_nick"]))):
+                # Forward to minecraft, not a command
+                self.mc_send(nick, message)
                 return
+
             is_special_cmd = fragments[0][:2] == "!!"
 
             # TODO: sig
