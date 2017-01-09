@@ -8,14 +8,60 @@ import sys
 class MinecraftServerWrapper:
     _config = None
     _loop = None
+    _bottom = None
 
     def __init__(self, config, loop):
-        _config = config
-        _loop = loop
+        self._config = config
+        self._loop = loop
 
     # Actual work starts here
     async def start_wrapper(self):
-        print("Start!")
+        print("Attempting to connect to IRC...")
+
+        # Create bottom IRC client
+        self._bottom = bottom.Client(host=self._config["irc_server"],
+                                     port=self._config["irc_port"],
+                                     ssl=False)
+
+        # Basic IRC handlers
+        @self._bottom.on('NOTICE')
+        def irc_notice(message, **kwargs):
+            print(message)
+
+        @self._bottom.on('PING')
+        def keepalive(message, **kwargs):
+            bot.send('PONG', message=message)
+
+        # Connect and then send username
+        await self._bottom.connect()
+        self._bottom.send('NICK', nick=self._config["irc_nick"])
+        self._bottom.send('USER', user=self._config["irc_nick"],
+                          realname=self._config["irc_nick"])
+
+        print("Waiting for IRC MOTD...")
+
+        # Wait on MOTD
+        done, pending = await asyncio.wait(
+            [self._bottom.wait("RPL_ENDOFMOTD"),
+             self._bottom.wait("ERR_NOMOTD")],
+            loop=self._loop,
+            return_when=asyncio.FIRST_COMPLETED
+        )
+
+        # Cancel whichever waiter's event didn't come in.
+        for future in pending:
+            future.cancel()
+
+        print("Joining channel...")
+
+        self._bottom.send('JOIN', channel=self._config["irc_channel"])
+
+        # Register message handler
+        @self._bottom.on('PRIVMSG')
+        def message(nick, target, message, **kwargs):
+            print(nick, target, message)
+
+        print("IRC ready!")
 
 def main():
     if len(sys.argv) < 2:
