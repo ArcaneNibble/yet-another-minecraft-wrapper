@@ -337,6 +337,7 @@ class MinecraftServerWrapper:
 
         # Connect and then send username
         await self._bottom.connect()
+        self._bottom.send('PASS', password=self._config["irc_password"])
         self._bottom.send('NICK', nick=self._config["irc_nick"])
         self._bottom.send('USER', user=self._config["irc_nick"],
                           realname=self._config["irc_nick"])
