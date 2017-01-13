@@ -153,9 +153,12 @@ class MinecraftServerWrapper:
                 if self._config["enable_irc_bridge"]:
                     chat_match = server_chat_re.search(output_line)
                     if chat_match:
-                        message = "<{}> {}".format(
-                            chat_match.group(1), chat_match.group(2))
-                        self.irc_send(message)
+                        # Only send to IRC if message starts with a !
+                        the_message = chat_match.group(2)
+                        if the_message[0] == "!":
+                            message = "<{}> {}".format(
+                                chat_match.group(1), the_message[1:])
+                            self.irc_send(message)
 
                     join_match = server_join_re.search(output_line)
                     if join_match:
